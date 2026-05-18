@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#define PATH_BUF 4096
+
 typedef struct TreeNode {
 	char* name;
 	char** files;

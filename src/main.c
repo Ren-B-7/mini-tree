@@ -3,13 +3,27 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <pthread.h>
+
+#if defined(_WIN32)
+#include <windows.h>
+static inline long get_nproc_win32(void)
+{
+	SYSTEM_INFO si;
+	GetSystemInfo(&si);
+	return (long) si.dwNumberOfProcessors;
+}
+#define GET_NPROC() get_nproc_win32()
+#else
+#include <unistd.h>
+#define GET_NPROC() sysconf(_SC_NPROCESSORS_ONLN)
+#endif
 
 #include "include/minicli.h"
 #include "include/output.h"
 #include "include/types.h"
-
-extern TreeNode* create_node(const char* name);
-extern void* traverse_directory(void* arg);
+#include "include/fs.h"
+#include "include/threading.h"
 
 int g_max_depth = -1;
 bool g_no_format = false;
@@ -21,6 +35,7 @@ typedef struct {
 
 static int cb_max_depth(int argc, char** argv, void* user_data)
 {
+	(void) user_data;
 	if (argc > 0) {
 		g_max_depth = (int) strtol(argv[0], NULL, 10);
 		return 1;
@@ -46,12 +61,12 @@ static int cb_no_format(int argc, char** argv, void* user_data)
 	return 0;
 }
 
-bool is_binary(const char* path)
+static bool is_binary(const char* path)
 {
 	return (access(path, X_OK) == 0);
 }
 
-void print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
+static void print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
 {
 	if (g_max_depth != -1 && level > g_max_depth) {
 		return;
@@ -64,14 +79,19 @@ void print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
 		printf("%s%s%s\n", PRINT_GREEN, node->name, PRINT_RESET);
 	}
 
-	char new_prefix[1024];
-	snprintf(new_prefix, sizeof(new_prefix), "%s%s   ", prefix,
+	char new_prefix[4096];
+	/* Ensure no truncation, though 4096 should be plenty for deep trees */
+	int written = snprintf(new_prefix, sizeof(new_prefix), "%s%s   ", prefix,
 	 is_last ? " " : "|");
+	(void) written;
+
 
 	for (int i = 0; i < node->file_count; i++) {
-		char full_path[1024];
-		snprintf(full_path, sizeof(full_path), "%s/%s", node->name,
-		 node->files[i]);
+		char full_path[PATH_BUF];
+		if (snprintf(full_path, sizeof(full_path), "%s/%s", node->name,
+		     node->files[i]) >= (int) sizeof(full_path)) {
+			/* Path truncated */
+		}
 
 		bool is_binary_file = is_binary(full_path);
 		const char* color = is_binary_file ? PRINT_YELLOW : PRINT_BLUE;
@@ -85,6 +105,13 @@ void print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
 		print_tree(node->subdirectories[i], level + 1, is_last_item,
 		 new_prefix);
 	}
+}
+
+static void* walker_thread(void* arg)
+{
+	DirQueue* dq = (DirQueue*) arg;
+	walk_dir_task(dq);
+	return NULL;
 }
 
 int main(int argc, char* argv[])
@@ -114,10 +141,32 @@ int main(int argc, char* argv[])
 		cfg.dir = argv[consumed];
 	}
 
-	TreeNode* root = create_node(cfg.dir);
-	traverse_directory(root);
+	DirQueue dq;
+	dq_init(&dq, 1024);
 
-	print_tree(root, 0, true, "");
+	long nproc = GET_NPROC();
+	if (nproc < 1) nproc = 1;
+	if (nproc > MAX_THREADS) nproc = MAX_THREADS;
+
+	dq.active_count = (int) nproc;
+
+	TreeNode* root = process_path(cfg.dir, true, NULL, &dq);
+
+	pthread_t threads[MAX_THREADS];
+	for (long i = 0; i < nproc; i++) {
+		pthread_create(&threads[i], NULL, walker_thread, &dq);
+	}
+
+	for (long i = 0; i < nproc; i++) {
+		pthread_join(threads[i], NULL);
+	}
+
+	if (root) {
+		print_tree(root, 0, true, "");
+	}
+
+	dq_destroy(&dq);
+	cli_destroy(&parser);
 
 	return 0;
 }

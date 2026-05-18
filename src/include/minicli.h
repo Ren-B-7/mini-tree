@@ -167,9 +167,10 @@ cli_print_completions(const CliParser* parser, const char* shell)
 
 static inline int cli_parse(CliParser* parser, int argc, char** argv)
 {
-	for (int i = 1; i < argc; i++) {
+	int i;
+	for (i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
-			continue;
+			return i;
 		}
 		bool found = false;
 		for (size_t j = 0; j < parser->arg_count; j++) {
@@ -187,7 +188,7 @@ static inline int cli_parse(CliParser* parser, int argc, char** argv)
 			/* Unknown option, ignore for now or handle as needed */
 		}
 	}
-	return 0;
+	return i;
 }
 
 static inline void cli_destroy(CliParser* parser)
