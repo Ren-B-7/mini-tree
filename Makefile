@@ -8,11 +8,11 @@ EXECUTABLE = $(BIN_DIR)/$(TARGET_NAME)
 HARDENED ?= 0
 
 # Source and Header files
-SRCS = src/main.c src/fs.c src/include/set.c
-HDRS = src/include/minicli.h src/include/output.h src/include/types.h src/include/set.h
+SRCS = src/main.c src/fs.c src/threading.c src/include/set.c
+HDRS = src/include/minicli.h src/include/output.h src/include/types.h src/include/set.h src/include/threading.h
 
 # Object files
-OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/set.o
+OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/threading.o $(BUILD_DIR)/set.o
 
 # --- Compiler and OS Detection ---
 CC = gcc
