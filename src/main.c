@@ -1,29 +1,31 @@
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <pthread.h>
 
 #if defined(_WIN32)
 #include <windows.h>
+
 static inline long get_nproc_win32(void)
 {
 	SYSTEM_INFO si;
 	GetSystemInfo(&si);
 	return (long) si.dwNumberOfProcessors;
 }
+
 #define GET_NPROC() get_nproc_win32()
 #else
 #include <unistd.h>
 #define GET_NPROC() sysconf(_SC_NPROCESSORS_ONLN)
 #endif
 
+#include "include/fs.h"
 #include "include/minicli.h"
 #include "include/output.h"
-#include "include/types.h"
-#include "include/fs.h"
 #include "include/threading.h"
+#include "include/types.h"
 
 int g_max_depth = -1;
 bool g_no_format = false;
@@ -66,7 +68,8 @@ static bool is_binary(const char* path)
 	return (access(path, X_OK) == 0);
 }
 
-static void print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
+static void
+print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
 {
 	if (g_max_depth != -1 && level > g_max_depth) {
 		return;
@@ -84,7 +87,6 @@ static void print_tree(TreeNode* node, int level, bool is_last, const char* pref
 	int written = snprintf(new_prefix, sizeof(new_prefix), "%s%s   ", prefix,
 	 is_last ? " " : "|");
 	(void) written;
-
 
 	for (int i = 0; i < node->file_count; i++) {
 		char full_path[PATH_BUF];
@@ -145,8 +147,12 @@ int main(int argc, char* argv[])
 	dq_init(&dq, 1024);
 
 	long nproc = GET_NPROC();
-	if (nproc < 1) nproc = 1;
-	if (nproc > MAX_THREADS) nproc = MAX_THREADS;
+	if (nproc < 1) {
+		nproc = 1;
+	}
+	if (nproc > MAX_THREADS) {
+		nproc = MAX_THREADS;
+	}
 
 	dq.active_count = (int) nproc;
 

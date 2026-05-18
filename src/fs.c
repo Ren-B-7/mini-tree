@@ -142,7 +142,8 @@ void walk_dir_task(DirQueue* dq)
 	}
 }
 
-TreeNode* process_path(const char* path, bool recurse, WorkQueue* wq, DirQueue* dq)
+TreeNode*
+process_path(const char* path, bool recurse, WorkQueue* wq, DirQueue* dq)
 {
 	(void) recurse;
 	(void) wq;
