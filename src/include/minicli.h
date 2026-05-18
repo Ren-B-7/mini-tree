@@ -167,10 +167,11 @@ cli_print_completions(const CliParser* parser, const char* shell)
 
 static inline int cli_parse(CliParser* parser, int argc, char** argv)
 {
-	int i;
-	for (i = 1; i < argc; i++) {
+	int first_non_option = -1;
+	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
-			return i;
+			if (first_non_option == -1) first_non_option = i;
+			continue;
 		}
 		bool found = false;
 		for (size_t j = 0; j < parser->arg_count; j++) {
@@ -185,10 +186,10 @@ static inline int cli_parse(CliParser* parser, int argc, char** argv)
 			}
 		}
 		if (!found) {
-			/* Unknown option, ignore for now or handle as needed */
+			/* Unknown option, ignore or handle */
 		}
 	}
-	return i;
+	return (first_non_option == -1) ? argc : first_non_option;
 }
 
 static inline void cli_destroy(CliParser* parser)

@@ -20,6 +20,7 @@
 #endif
 
 extern bool g_show_hidden;
+extern bool g_follow_links;
 static pthread_mutex_t g_tree_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Helper to create a new node
@@ -38,6 +39,16 @@ TreeNode* create_node(const char* name)
 	node->total_dirs = 0;
 	node->total_size = 0;
 	return node;
+}
+
+void aggregate_totals(TreeNode* node)
+{
+	for (int i = 0; i < node->dir_count; i++) {
+		aggregate_totals(node->subdirectories[i]);
+		node->total_files += node->subdirectories[i]->total_files;
+		node->total_dirs += node->subdirectories[i]->total_dirs;
+		node->total_size += node->subdirectories[i]->total_size;
+	}
 }
 
 // Function to add a file
@@ -115,7 +126,14 @@ static void traverse_recursive_hybrid(TreeNode* node, int depth, DirQueue* dq)
 		memcpy(sub_path + path_len + 1, entry->d_name, nlen + 1);
 
 		struct stat st;
-		if (LSTAT(sub_path, &st) != 0) {
+		int stat_res;
+		if (g_follow_links) {
+			stat_res = stat(sub_path, &st);
+		} else {
+			stat_res = LSTAT(sub_path, &st);
+		}
+
+		if (stat_res != 0) {
 			continue;
 		}
 
