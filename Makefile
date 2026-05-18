@@ -4,23 +4,45 @@ BUILD_DIR = build
 BIN_DIR = bin
 EXECUTABLE = $(BIN_DIR)/$(TARGET_NAME)
 
+# --- OS / Platform Detection ---
+ifeq ($(OS),Windows_NT)
+    PLATFORM   := windows
+    EXE_SUFFIX := .exe
+else
+    UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
+    ifeq ($(UNAME_S),Darwin)
+        PLATFORM := darwin
+    else
+        PLATFORM := linux
+    endif
+    EXE_SUFFIX :=
+endif
+
 # --- Hardening Toggle ---
 HARDENED ?= 0
 
 # Source and Header files
 SRCS = src/main.c src/fs.c src/threading.c src/include/set.c
-HDRS = src/include/minicli.h src/include/output.h src/include/types.h src/include/set.h src/include/threading.h
+HDRS = src/include/minicli.h src/include/output.h src/include/types.h \
+       src/include/set.h src/include/threading.h src/include/fs.h
 
 # Object files
 OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/threading.o $(BUILD_DIR)/set.o
 
-# --- Compiler and OS Detection ---
+# --- Compiler Detection ---
 CC = gcc
 IS_GCC := $(shell $(CC) -v 2>&1 | grep -q "gcc" && echo 1 || echo 0)
 
+# Platform Flags
+ifeq ($(PLATFORM),windows)
+    POSIX_FLAGS =
+else
+    POSIX_FLAGS = -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+endif
+
 # Strict compilation flags
-CFLAGS = -std=c99 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -pedantic \
-         -pedantic-errors -Wall -Wextra -Wformat=2 -Wformat-security -Wnull-dereference \
+CFLAGS = -std=c99 $(POSIX_FLAGS) -pedantic -pedantic-errors \
+         -Wall -Wextra -Wformat=2 -Wformat-security -Wnull-dereference \
          -Isrc -Isrc/include
 
 ifeq ($(IS_GCC),1)
@@ -33,9 +55,14 @@ ifeq ($(IS_GCC),1)
     CFLAGS += $(GCC_FLAGS)
 endif
 
-# Linking flags
-HARDENING_C = -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE -fstack-clash-protection -fcf-protection
-HARDENING_L = -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack -Wl,-z,separate-code -pie
+# Hardening flags
+ifeq ($(PLATFORM),linux)
+    HARDENING_C = -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE -fstack-clash-protection -fcf-protection
+    HARDENING_L = -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack -Wl,-z,separate-code -pie
+else
+    HARDENING_C =
+    HARDENING_L =
+endif
 
 ifeq ($(HARDENED),1)
     SELECTED_HARDENING_C = $(HARDENING_C)
@@ -49,31 +76,77 @@ ALL_CFLAGS = $(CFLAGS) $(SELECTED_HARDENING_C) -O3 -pthread
 LD_FLAGS = $(SELECTED_HARDENING_L)
 
 # Targets
-.PHONY: all clean directories format lint
+.PHONY: all clean directories format lint check-tools install check-binaries format-c format-makefile format-ci lint-c lint-makefile
 
-all: directories $(EXECUTABLE)
+all: directories check-tools $(EXECUTABLE)
+
+check: check-tools format lint
+
+check-tools:
+	@command -v clang-format > /dev/null 2>&1 || \
+	    { echo "ERROR: clang-format not found."; exit 1; }
+	@command -v clang-tidy > /dev/null 2>&1 || \
+	    { echo "ERROR: clang-tidy not found."; exit 1; }
+
+check-binaries:
+	@if [ ! -f "$(EXECUTABLE)" ]; then \
+		echo "ERROR: Binaries are missing. Run 'make' first."; \
+		echo "  Expected: $(EXECUTABLE)"; \
+		exit 1; \
+	fi
+
+# Interactive prompt — printf + read work in MinGW bash on all platforms.
+install: check-binaries
+	@printf "Installing...."; \
+	@mkdir -p $(INSTALL_DIR)
+	@install -m 755 $(EXECUTABLE) $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)
+	@echo "Installed $(TARGET_NAME) to $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)"
 
 directories:
 	@mkdir -p $(BIN_DIR) $(BUILD_DIR)
 
 $(BUILD_DIR)/%.o: src/%.c
+	@echo "Compiling $<..."
 	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/set.o: src/include/set.c
+$(BUILD_DIR)/%.o: src/include/%.c
+	@echo "Compiling $<..."
 	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
 $(EXECUTABLE): $(OBJS)
 	$(CC) $(ALL_CFLAGS) $(LD_FLAGS) -o $@ $^ -pthread
 
 clean:
+	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR) $(BIN_DIR)
 
-format:
-	@echo "Formatting code..."
+format: check-tools format-c format-makefile
+
+format-c:
+	@echo "Formatting C source code"
 	@clang-format -style=file:./.clang-format -i $(SRCS) $(HDRS)
+
+format-makefile:
+	@echo "Formatting Makefile"
 	@mbake format --config ./.bake.toml Makefile
 
-lint:
-	@echo "Running analysis..."
-	@clang-tidy -checks=-*,bugprone-*,clang-analyzer-*,performance-* $(SRCS) -- $(CFLAGS)
+format-ci: check-tools format-c-ci format-makefile-ci
+
+format-c-ci:
+	@echo "Checking C source file formats"
+	@clang-format --dry-run -style=file:./.clang-format -Werror $(SRCS_ALL) $(HDRS)
+
+format-makefile-ci:
+	@echo "Checking Makefile format"
+	@mbake format --config ./.bake.toml --check Makefile
+
+lint: check-tools lint-c lint-makefile
+
+lint-c:
+	@echo "Running clang-tidy analysis"
+	@clang-tidy -checks=-*,bugprone-*,clang-analyzer-*,performance-* \
+	$(SRCS_ALL) -- $(CFLAGS)
+
+lint-makefile:
+	@echo "Running Makefile analysis"
 	@mbake validate --config ./.bake.toml Makefile
