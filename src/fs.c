@@ -26,8 +26,8 @@ void add_file(TreeNode* node, const char* name)
 	if (node->file_count == node->file_capacity) {
 		int new_capacity =
 		 (node->file_capacity == 0) ? 4 : node->file_capacity * 2;
-		char** new_files =
-		 (char**) realloc(node->files, sizeof(char*) * (size_t) new_capacity);
+		char** new_files = (char**) realloc((void*) node->files,
+		 sizeof(char*) * (size_t) new_capacity);
 		if (new_files == NULL) {
 			return;
 		}
@@ -43,7 +43,7 @@ void add_subdir(TreeNode* node, TreeNode* subdir)
 	if (node->dir_count == node->dir_capacity) {
 		int new_capacity =
 		 (node->dir_capacity == 0) ? 4 : node->dir_capacity * 2;
-		TreeNode** new_subs = (TreeNode**) realloc(node->subdirectories,
+		TreeNode** new_subs = (TreeNode**) realloc((void*) node->subdirectories,
 		 sizeof(TreeNode*) * (size_t) new_capacity);
 		if (new_subs == NULL) {
 			return;
