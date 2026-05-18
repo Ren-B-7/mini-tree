@@ -33,11 +33,15 @@ TreeNode* create_node(const char* name)
 	node->subdirectories = NULL;
 	node->dir_count = 0;
 	node->dir_capacity = 0;
+
+	node->total_files = 0;
+	node->total_dirs = 0;
+	node->total_size = 0;
 	return node;
 }
 
 // Function to add a file
-static void add_file(TreeNode* node, const char* name)
+static void add_file(TreeNode* node, const char* name, long size)
 {
 	pthread_mutex_lock(&g_tree_mutex);
 	if (node->file_count == node->file_capacity) {
@@ -53,6 +57,8 @@ static void add_file(TreeNode* node, const char* name)
 		node->file_capacity = new_capacity;
 	}
 	node->files[node->file_count++] = strdup(name);
+	node->total_files++;
+	node->total_size += size;
 	pthread_mutex_unlock(&g_tree_mutex);
 }
 
@@ -67,6 +73,8 @@ static void add_subdir(TreeNode* node, TreeNode* subdir)
 		 sizeof(TreeNode*) * (size_t) new_capacity);
 		if (new_subs == NULL) {
 			pthread_mutex_unlock(&g_tree_mutex);
+			free(subdir->name);
+			free(subdir);
 			return;
 		}
 		node->subdirectories = new_subs;
@@ -114,13 +122,16 @@ static void traverse_recursive_hybrid(TreeNode* node, int depth, DirQueue* dq)
 		if (S_ISDIR(st.st_mode)) {
 			TreeNode* subdir = create_node(sub_path);
 			add_subdir(node, subdir);
+			pthread_mutex_lock(&g_tree_mutex);
+			node->total_dirs++;
+			pthread_mutex_unlock(&g_tree_mutex);
 			if (depth < 2 && dq) {
 				dq_push(dq, subdir, depth + 1);
 			} else {
 				traverse_recursive_hybrid(subdir, depth + 1, dq);
 			}
 		} else if (S_ISREG(st.st_mode)) {
-			add_file(node, entry->d_name);
+			add_file(node, entry->d_name, (long) st.st_size);
 		}
 	}
 
