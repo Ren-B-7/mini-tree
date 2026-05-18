@@ -1,75 +1,79 @@
-# Project Name (edit this)
-TARGET_NAME = my_project
+# Project Name and Directories
+TARGET_NAME = tree
 BUILD_DIR = build
 BIN_DIR = bin
 EXECUTABLE = $(BIN_DIR)/$(TARGET_NAME)
 
-# Source files (edit these) - MUST be in src/ directory
-SRCS = src/main.c src/example.c
-# Header files (edit these if you add headers outside src/include/)
-HDRS = src/include/example.h
+# --- Hardening Toggle ---
+HARDENED ?= 0
 
-# Object files (placed in build/ directory)
-OBJS = $(SRCS:src/%.c=$(BUILD_DIR)/%.o)
+# Source and Header files
+SRCS = src/main.c src/fs.c src/include/set.c
+HDRS = src/include/minicli.h src/include/output.h src/include/types.h src/include/set.h
 
-# Compiler and flags
+# Object files
+OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/set.o
+
+# --- Compiler and OS Detection ---
 CC = gcc
-# Comprehensive CFLAGS
-CFLAGS = -std=c11 -pedantic -Wall -Wextra -Werror -Wformat=2 -Wshadow -Wconversion -Wsign-conversion -Wundef -Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wpointer-arith -Wwrite-strings -Wold-style-definition -Isrc/include
-# Hardening flags
-HARDENING = -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE -fstack-clash-protection -fcf-protection
-# Optimization flags
-OPTFLAGS = -O3 -march=native -flto
+IS_GCC := $(shell $(CC) -v 2>&1 | grep -q "gcc" && echo 1 || echo 0)
 
-# Linker flags
-LDFLAGS = -lm -pie -Wl,-z,relro,-z,now
+# Strict compilation flags
+CFLAGS = -std=c99 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -pedantic \
+         -pedantic-errors -Wall -Wextra -Wformat=2 -Wformat-security -Wnull-dereference \
+         -Isrc -Isrc/include
 
-# Combine all flags
-ALL_CFLAGS = $(CFLAGS) $(HARDENING) $(OPTFLAGS)
+ifeq ($(IS_GCC),1)
+    GCC_FLAGS = -Wstack-protector -Wtrampolines -Walloca -Wvla \
+                -Warray-bounds=2 -Wimplicit-fallthrough=3 -Wshift-overflow=2 -Wcast-qual \
+                -Wcast-align=strict -Wconversion -Wsign-conversion -Wlogical-op -Wduplicated-cond \
+                -Wduplicated-branches -Wrestrict -Wnested-externs -Winline -Wundef -Wstrict-prototypes \
+                -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls -Wshadow -Wwrite-strings \
+                -Wfloat-equal -Wpointer-arith -Wbad-function-cast -Wold-style-definition
+    CFLAGS += $(GCC_FLAGS)
+endif
+
+# Linking flags
+HARDENING_C = -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE -fstack-clash-protection -fcf-protection
+HARDENING_L = -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack -Wl,-z,separate-code -pie
+
+ifeq ($(HARDENED),1)
+    SELECTED_HARDENING_C = $(HARDENING_C)
+    SELECTED_HARDENING_L = $(HARDENING_L)
+else
+    SELECTED_HARDENING_C =
+    SELECTED_HARDENING_L =
+endif
+
+ALL_CFLAGS = $(CFLAGS) $(SELECTED_HARDENING_C) -O3 -pthread
+LD_FLAGS = $(SELECTED_HARDENING_L)
 
 # Targets
-.PHONY: all clean run format lint directories
+.PHONY: all clean directories format lint
 
 all: directories $(EXECUTABLE)
 
-# Create output directories if they don't exist
 directories:
 	@mkdir -p $(BIN_DIR) $(BUILD_DIR)
 
-# Rule to compile .c files into .o files in the build/ directory
 $(BUILD_DIR)/%.o: src/%.c
-	@echo "Compiling $< ..."
 	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
-# Rule to link the executable in the bin/ directory
-$(EXECUTABLE): $(OBJS)
-	@echo "Linking $@ ..."
-	$(CC) $(ALL_CFLAGS) $(LDFLAGS) -o $(EXECUTABLE) $(OBJS)
+$(BUILD_DIR)/set.o: src/include/set.c
+	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
-# Rule to clean up build artifacts
-test:
-	$(CC) -Itests/include tests/test_placeholder.c -o tests/runner
-	./tests/runner
+$(EXECUTABLE): $(OBJS)
+	$(CC) $(ALL_CFLAGS) $(LD_FLAGS) -o $@ $^ -pthread
 
 clean:
-	@echo "Cleaning up build artifacts..."
 	@rm -rf $(BUILD_DIR) $(BIN_DIR)
 
-# Rule to run the executable
-run: $(EXECUTABLE)
-	@echo "Running $(EXECUTABLE) ..."
-	./$(EXECUTABLE)
-
-# Format code using clang-format
-FORMAT_FILES = $(SRCS) $(HDRS)
 format:
 	@echo "Formatting code..."
-	@clang-format -style=file:./.clang-format -i $(FORMAT_FILES)
-	mbake format --config ./.bake.toml Makefile
+	@clang-format -style=file:./.clang-format -i $(SRCS) $(HDRS)
+	@mbake format --config ./.bake.toml Makefile
 
-# Run static analysis with clang-tidy
-CLANG_TIDY_CHECKS = -checks=-*,readability-*,bugprone-*,performance-*,clang-analyzer-*
 lint:
-	@echo "Running static analysis..."
-	@clang-tidy $(CLANG_TIDY_CHECKS) $(SRCS) -- $(CFLAGS)
-	mbake validate --config ./.bake.toml Makefile
+	@echo "Running analysis..."
+	@clang-tidy -checks=-*,bugprone-*,clang-analyzer-*,performance-* $(SRCS) -- $(CFLAGS)
+	@mbake validate --config ./.bake.toml Makefile
