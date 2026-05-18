@@ -74,7 +74,7 @@ static void add_file(TreeNode* node, const char* name, long size)
 }
 
 // Function to add a subdirectory
-static void add_subdir(TreeNode* node, TreeNode* subdir)
+static bool add_subdir(TreeNode* node, TreeNode* subdir)
 {
 	pthread_mutex_lock(&g_tree_mutex);
 	if (node->dir_count == node->dir_capacity) {
@@ -84,15 +84,14 @@ static void add_subdir(TreeNode* node, TreeNode* subdir)
 		 sizeof(TreeNode*) * (size_t) new_capacity);
 		if (new_subs == NULL) {
 			pthread_mutex_unlock(&g_tree_mutex);
-			free(subdir->name);
-			free(subdir);
-			return;
+			return false;
 		}
 		node->subdirectories = new_subs;
 		node->dir_capacity = new_capacity;
 	}
 	node->subdirectories[node->dir_count++] = subdir;
 	pthread_mutex_unlock(&g_tree_mutex);
+	return true;
 }
 
 static void traverse_recursive_hybrid(TreeNode* node, int depth, DirQueue* dq)
@@ -139,7 +138,11 @@ static void traverse_recursive_hybrid(TreeNode* node, int depth, DirQueue* dq)
 
 		if (S_ISDIR(st.st_mode)) {
 			TreeNode* subdir = create_node(sub_path);
-			add_subdir(node, subdir);
+			if (!add_subdir(node, subdir)) {
+				free(subdir->name);
+				free(subdir);
+				continue;
+			}
 			pthread_mutex_lock(&g_tree_mutex);
 			node->total_dirs++;
 			pthread_mutex_unlock(&g_tree_mutex);

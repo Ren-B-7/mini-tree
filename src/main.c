@@ -174,7 +174,8 @@ static void format_size(long size, char* buf, size_t buf_size)
 	}
 }
 
-static void print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
+static void
+print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
 {
 	if (g_max_depth != -1 && level > g_max_depth) {
 		return;
@@ -193,18 +194,24 @@ static void print_tree(TreeNode* node, int level, bool is_last, const char* pref
 		if (g_no_indent) {
 			printf("%s%s%s%s%s\n", g_no_color ? "" : PRINT_GREEN, node->name,
 			 g_no_color ? "" : PRINT_RESET, g_show_size ? " (" : "", size_buf);
-			if (g_show_size) printf(")");
+			if (g_show_size) {
+				printf(")");
+			}
 		} else {
 			printf("%s%s-- %s%s%s", prefix, is_last ? "`" : "|",
 			 g_no_color ? "" : PRINT_GREEN, node->name,
 			 g_no_color ? "" : PRINT_RESET);
-			if (g_show_size) printf(" (%s)", size_buf);
+			if (g_show_size) {
+				printf(" (%s)", size_buf);
+			}
 			printf("\n");
 		}
 	} else {
 		printf("%s%s%s", g_no_color ? "" : PRINT_GREEN, node->name,
 		 g_no_color ? "" : PRINT_RESET);
-		if (g_show_size) printf(" (%s)", size_buf);
+		if (g_show_size) {
+			printf(" (%s)", size_buf);
+		}
 		printf("\n");
 	}
 
@@ -226,7 +233,8 @@ static void print_tree(TreeNode* node, int level, bool is_last, const char* pref
 			const char* color =
 			 g_no_color ? "" : (is_binary_file ? PRINT_YELLOW : PRINT_BLUE);
 
-			bool is_last_item = (i == node->file_count - 1 && node->dir_count == 0);
+			bool is_last_item =
+			 (i == node->file_count - 1 && node->dir_count == 0);
 
 			if (g_show_size) {
 				struct stat st;
@@ -238,12 +246,16 @@ static void print_tree(TreeNode* node, int level, bool is_last, const char* pref
 			if (g_no_indent) {
 				printf("%s%s%s", color, node->files[i],
 				 g_no_color ? "" : PRINT_RESET);
-				if (g_show_size) printf(" (%s)", size_buf);
+				if (g_show_size) {
+					printf(" (%s)", size_buf);
+				}
 				printf("\n");
 			} else {
 				printf("%s%s-- %s%s%s", new_prefix, is_last_item ? "`" : "|",
 				 color, node->files[i], g_no_color ? "" : PRINT_RESET);
-				if (g_show_size) printf(" (%s)", size_buf);
+				if (g_show_size) {
+					printf(" (%s)", size_buf);
+				}
 				printf("\n");
 			}
 		}
@@ -270,8 +282,11 @@ static void print_json(TreeNode* node, int level)
 	printf("%*s\"directories\": [\n", (level + 1) * 2, "");
 	for (int i = 0; i < node->dir_count; i++) {
 		print_json(node->subdirectories[i], level + 2);
-		if (i < node->dir_count - 1) printf(",\n");
-		else printf("\n");
+		if (i < node->dir_count - 1) {
+			printf(",\n");
+		} else {
+			printf("\n");
+		}
 	}
 	printf("%*s]\n", (level + 1) * 2, "");
 	printf("%*s}", level * 2, "");
@@ -289,7 +304,6 @@ static void print_xml(TreeNode* node, int level)
 	}
 	printf("%*s</directory>\n", level * 2, "");
 }
-
 
 static void* walker_thread(void* arg)
 {
@@ -319,19 +333,26 @@ int main(int argc, char* argv[])
 	cli_add_argument(&parser,
 	 (CliArgument) {"--xml", "-x", "Output in XML format", cb_xml, &cfg});
 	cli_add_argument(&parser,
-	 (CliArgument) {"--no-color", NULL, "Disable coloration", cb_no_color, &cfg});
+	 (CliArgument) {
+	     "--no-color", NULL, "Disable coloration", cb_no_color, &cfg});
 	cli_add_argument(&parser,
-	 (CliArgument) {"--no-indent", NULL, "Disable indentation", cb_no_indent, &cfg});
+	 (CliArgument) {
+	     "--no-indent", NULL, "Disable indentation", cb_no_indent, &cfg});
 	cli_add_argument(&parser,
-	 (CliArgument) {"--prune", NULL, "Prune empty directories", cb_prune, &cfg});
+	 (CliArgument) {
+	     "--prune", NULL, "Prune empty directories", cb_prune, &cfg});
 	cli_add_argument(&parser,
-	 (CliArgument) {"--size", "-s", "Show file and directory sizes", cb_show_size, &cfg});
+	 (CliArgument) {
+	     "--size", "-s", "Show file and directory sizes", cb_show_size, &cfg});
 	cli_add_argument(&parser,
-	 (CliArgument) {"--dirs-only", "-d", "Only show directory names", cb_dirs_only, &cfg});
+	 (CliArgument) {
+	     "--dirs-only", "-d", "Only show directory names", cb_dirs_only, &cfg});
 	cli_add_argument(&parser,
-	 (CliArgument) {"--no-count", NULL, "Don't show file/directory counts", cb_no_count, &cfg});
+	 (CliArgument) {"--no-count", NULL, "Don't show file/directory counts",
+	     cb_no_count, &cfg});
 	cli_add_argument(&parser,
-	 (CliArgument) {"--follow-links", "-L", "Follow symlinks", cb_follow_links, &cfg});
+	 (CliArgument) {
+	     "--follow-links", "-L", "Follow symlinks", cb_follow_links, &cfg});
 	cli_add_argument(&parser,
 	 (CliArgument) {"--help", "-h", "Show help", NULL, NULL});
 

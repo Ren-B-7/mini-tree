@@ -170,7 +170,9 @@ static inline int cli_parse(CliParser* parser, int argc, char** argv)
 	int first_non_option = -1;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
-			if (first_non_option == -1) first_non_option = i;
+			if (first_non_option == -1) {
+				first_non_option = i;
+			}
 			continue;
 		}
 		bool found = false;
