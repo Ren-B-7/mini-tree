@@ -53,7 +53,6 @@ static inline void node_lock_release(TreeNode* n)
 
 TreeNode* create_node(const char* name)
 {
-	printf("Created a new node!\n");
 	TreeNode* node = malloc(sizeof(TreeNode));
 	if (!node) {
 		return NULL;
@@ -151,7 +150,6 @@ static bool add_subdir(TreeNode* parent, TreeNode* child)
  */
 static void traverse_recursive_hybrid(TreeNode* node, int depth, DirQueue* dq)
 {
-	printf("Start hybrid walker\n");
 	(void) depth; /* depth tracking no longer needed without the gate */
 
 	DIR* dir = opendir(node->name);

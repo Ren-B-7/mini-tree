@@ -217,8 +217,12 @@ print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
 
 	char new_prefix[4096];
 	if (!g_no_indent) {
-		snprintf(new_prefix, sizeof(new_prefix), "%s%s   ", prefix,
-		 is_last ? " " : "|");
+		if (level == 0) {
+			snprintf(new_prefix, sizeof(new_prefix), "%s", prefix);
+		} else {
+			snprintf(new_prefix, sizeof(new_prefix), "%s%s   ", prefix,
+			 is_last ? " " : "|");
+		}
 	} else {
 		new_prefix[0] = '\0';
 	}

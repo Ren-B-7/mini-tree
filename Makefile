@@ -24,8 +24,6 @@ else
     INSTALL_DIR ?= $(HOME)/.local/bin
 endif
 
-
-
 # --- Hardening Toggle ---
 HARDENED ?= 0
 
