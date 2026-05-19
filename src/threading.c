@@ -147,8 +147,6 @@ int dq_init(DirQueue* q, size_t initial_cap)
 void dq_push(DirQueue* q, void* data, int depth)
 {
 	pthread_mutex_lock(&q->lock);
-	printf("DEBUG: dq_push: pushing node, old count=%zu, old active=%d\n",
-	 q->count, q->active_count);
 
 	/* Grow the ring buffer if full */
 	if (q->count == q->cap) {
@@ -191,8 +189,6 @@ void dq_push(DirQueue* q, void* data, int depth)
 	 * done.
 	 */
 	q->active_count++;
-	printf("DEBUG: dq_push: pushed node, new count=%zu, new active=%d\n",
-	 q->count, q->active_count);
 
 	pthread_cond_signal(&q->not_empty);
 	pthread_mutex_unlock(&q->lock);
@@ -209,15 +205,12 @@ void dq_push(DirQueue* q, void* data, int depth)
 bool dq_pop(DirQueue* q, void** data, int* depth)
 {
 	pthread_mutex_lock(&q->lock);
-	printf("DEBUG: dq_pop: attempting pop, count=%zu, active=%d, finished=%d\n",
-	 q->count, q->active_count, q->finished);
 
 	while (q->count == 0 && !q->finished) {
 		pthread_cond_wait(&q->not_empty, &q->lock);
 	}
 
 	if (q->count == 0) {
-		printf("DEBUG: dq_pop: no items, finished=%d\n", q->finished);
 		pthread_mutex_unlock(&q->lock);
 		return false;
 	}
@@ -230,9 +223,6 @@ bool dq_pop(DirQueue* q, void** data, int* depth)
 	*depth = q->depths[q->head];
 	q->head = (q->head + 1) % q->cap;
 	q->count--;
-
-	printf("DEBUG: dq_pop: popped item, count=%zu, active=%d\n", q->count,
-	 q->active_count);
 
 	/*
 	 * If we were previously waiting (idle), our exit from wait means we
@@ -254,11 +244,8 @@ void dq_node_done(DirQueue* q)
 {
 	pthread_mutex_lock(&q->lock);
 	q->active_count--;
-	printf("DEBUG: dq_node_done: active_count=%d, count=%zu\n", q->active_count,
-	 q->count);
 	if (q->active_count == 0 && q->count == 0) {
 		q->finished = true;
-		printf("DEBUG: dq_node_done: setting finished=true and broadcasting\n");
 		pthread_cond_broadcast(&q->not_empty);
 	}
 	pthread_mutex_unlock(&q->lock);
