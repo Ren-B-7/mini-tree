@@ -1,60 +1,40 @@
-# Mini Project Template
+# Mini-Tree
 
-This repository serves as a template for creating new "mini-projects" in the series. It provides a standardized structure and common configurations to help you get started quickly.
+Mini-Tree is a high-performance, multithreaded directory tree visualization tool. It provides a clean, hierarchical overview of your filesystem, supporting various output formats and customization options.
 
 ## Project Structure
 
--   **`src/`**: Contains your main source code files (`.c`).
-    -   **`include/`**: Contains your header files (`.h`).
--   **`bin/`**: The compiled executable will be placed here.
--   **`Makefile`**: Build system configuration.
--   **`.clang-format`**: Code formatting configuration.
--   **`.clang-tidy`**: Static analysis configuration.
--   **`.gitignore`**: Specifies intentionally untracked files that Git should ignore.
--   **`LICENSE`**: The project's license.
--   **`README.md`**: This file.
+-   **`src/`**: Core source code, including multithreaded directory traversal (`fs.c`, `threading.c`).
+    -   **`include/`**: Header files for modules, types, and synchronization primitives.
+-   **`bin/`**: The compiled `tree` executable.
+-   **`Makefile`**: Build system configuration supporting Linux/macOS and Windows (MinGW).
+-   **`.clang-format` & `.clang-tidy`**: Pre-configured linting and formatting.
 
-## Getting Started
+## Building and Running
 
-1.  **Clone this repository:**
+Mini-Tree uses `gcc` and `pthread` for its multithreaded architecture.
+
+1.  **Build:**
     ```bash
-    git clone <repository_url> my-new-project
-    cd my-new-project
+    make all
     ```
-    Replace `<repository_url>` with the URL of this template repository.
+    The executable will be generated as `bin/tree`.
 
-2.  **Clean Git History (Optional but Recommended):**
-    If you want a fresh Git history for your new project, you can do the following:
+2.  **Run:**
     ```bash
-    rm -rf .git
-    git init
-    git add .
-    git commit -m "Initial commit from template"
-    # Add your remote origin if you plan to push to GitHub or another remote
-    # git remote add origin <your_project_remote_url>
+    ./bin/tree <directory_path> [options]
     ```
 
-3.  **Update Project-Specific Files:**
-    *   **`Makefile`**:
-        *   Edit the `TARGET_NAME` variable to your project's name.
-        *   Update the `SRCS` list to include all your `.c` files, ensuring they are prefixed with `src/`.
-        *   Review and adjust `CFLAGS` and `LDFLAGS` as needed.
-    *   **`README.md`**: Update this file to describe your specific project, its features, and any unique build instructions.
-    *   **Source Files**: Replace `src/main.c` and `src/include/example.h` with your project's actual source code. Add any other `.c` files to the `src/` directory and corresponding `.h` files to `src/include/`.
+3.  **Options:**
+    Use `--help` (or standard CLI arguments) to see all supported features like JSON/XML output, file pruning, and link following.
 
-4.  **Build and Run:**
-    Use the provided `Makefile` commands:
-    ```bash
-    make all  # Build your project (executable will be in bin/)
-    make run  # Run your project
-    make clean # Clean build artifacts
-    ```
+## Multithreading Architecture
 
-## Configuration Files
-
--   **`.clang-format` & `.clang-tidy`**: These files are pre-configured for code style and basic linting. You can customize them to fit your preferences.
--   **`Makefile`**: A robust Makefile is provided. For projects with more complex build requirements (e.g., using libraries, custom build tools), you may need to modify this Makefile.
+Mini-Tree utilizes a producer-consumer architecture to achieve high-performance traversal:
+-   **Work Dispatching**: An initial `process_path` call initiates the traversal and pushes the root node to a `DirQueue`.
+-   **Worker Pool**: Multiple worker threads (based on available CPU cores) pull directories from the `DirQueue`, traverse them, and potentially push new child directories back into the queue.
+-   **Synchronization**: The system employs a custom `DirQueue` with robust atomic `active_count` tracking and per-node spinlocks to minimize mutex contention, ensuring thread-safe, efficient performance even on deep/wide trees.
 
 ## License
 
-This template is licensed under the MIT License.
+This project is licensed under the MIT License.
