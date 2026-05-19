@@ -21,12 +21,43 @@
 
 extern bool g_show_hidden;
 extern bool g_follow_links;
-static pthread_mutex_t g_tree_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Helper to create a new node
+/*
+ * Per-node spinlock helpers.
+ *
+ * Each TreeNode carries its own atomic lock word, eliminating the single
+ * global mutex that previously serialized every add_file / add_subdir call
+ * across all threads.  A spinlock is appropriate here because the critical
+ * sections are very short (a pointer store + counter bump) and contention on
+ * any individual node is rare — only threads that happen to be populating the
+ * same directory compete.
+ */
+static inline void node_lock_acquire(TreeNode* n)
+{
+	int zero = 0;
+	while (!__atomic_compare_exchange_n(&n->node_lock, &zero, 1, 0,
+	 __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+		zero = 0;
+		/* Yield the CPU briefly to avoid starving other threads on
+		 * hyperthreaded cores. */
+#if defined(__x86_64__) || defined(__i386__)
+		__asm__ volatile("pause" ::: "memory");
+#endif
+	}
+}
+
+static inline void node_lock_release(TreeNode* n)
+{
+	__atomic_store_n(&n->node_lock, 0, __ATOMIC_RELEASE);
+}
+
 TreeNode* create_node(const char* name)
 {
+	printf("Created a new node!\n");
 	TreeNode* node = malloc(sizeof(TreeNode));
+	if (!node) {
+		return NULL;
+	}
 	node->name = strdup(name);
 	node->files = NULL;
 	node->file_count = 0;
@@ -34,10 +65,10 @@ TreeNode* create_node(const char* name)
 	node->subdirectories = NULL;
 	node->dir_count = 0;
 	node->dir_capacity = 0;
-
 	node->total_files = 0;
 	node->total_dirs = 0;
 	node->total_size = 0;
+	node->node_lock = 0;
 	return node;
 }
 
@@ -51,62 +82,94 @@ void aggregate_totals(TreeNode* node)
 	}
 }
 
-// Function to add a file
+/*
+ * add_file — lock-free on the fast path.
+ *
+ * A thread owns a node exclusively while it is the active traversal thread
+ * for that directory (it dequeued it from DirQueue).  No other thread calls
+ * add_file on the same node concurrently, so no lock is needed here at all.
+ * The per-node spinlock is only taken in add_subdir, where a child node is
+ * being linked into a parent that may be shared briefly.
+ */
 static void add_file(TreeNode* node, const char* name, long size)
 {
-	pthread_mutex_lock(&g_tree_mutex);
 	if (node->file_count == node->file_capacity) {
-		int new_capacity =
-		 (node->file_capacity == 0) ? 4 : node->file_capacity * 2;
-		char** new_files = (char**) realloc((void*) node->files,
-		 sizeof(char*) * (size_t) new_capacity);
-		if (new_files == NULL) {
-			pthread_mutex_unlock(&g_tree_mutex);
+		int new_cap = (node->file_capacity == 0) ? 8 : node->file_capacity * 2;
+		char** nf = (char**) realloc((void*) node->files,
+		 sizeof(char*) * (size_t) new_cap);
+		if (!nf) {
 			return;
 		}
-		node->files = new_files;
-		node->file_capacity = new_capacity;
+		node->files = nf;
+		node->file_capacity = new_cap;
 	}
 	node->files[node->file_count++] = strdup(name);
 	node->total_files++;
 	node->total_size += size;
-	pthread_mutex_unlock(&g_tree_mutex);
 }
 
-// Function to add a subdirectory
-static bool add_subdir(TreeNode* node, TreeNode* subdir)
+/*
+ * add_subdir — takes the per-node spinlock only on the parent.
+ *
+ * The child node is brand-new and not yet visible to any other thread, so it
+ * needs no protection.  We only lock the parent long enough to append the
+ * pointer and bump total_dirs, which is a handful of instructions.
+ */
+static bool add_subdir(TreeNode* parent, TreeNode* child)
 {
-	pthread_mutex_lock(&g_tree_mutex);
-	if (node->dir_count == node->dir_capacity) {
-		int new_capacity =
-		 (node->dir_capacity == 0) ? 4 : node->dir_capacity * 2;
-		TreeNode** new_subs = (TreeNode**) realloc((void*) node->subdirectories,
-		 sizeof(TreeNode*) * (size_t) new_capacity);
-		if (new_subs == NULL) {
-			pthread_mutex_unlock(&g_tree_mutex);
+	node_lock_acquire(parent);
+	if (parent->dir_count == parent->dir_capacity) {
+		int new_cap =
+		 (parent->dir_capacity == 0) ? 4 : parent->dir_capacity * 2;
+		TreeNode** ns = (TreeNode**) realloc((void*) parent->subdirectories,
+		 sizeof(TreeNode*) * (size_t) new_cap);
+		if (!ns) {
+			node_lock_release(parent);
 			return false;
 		}
-		node->subdirectories = new_subs;
-		node->dir_capacity = new_capacity;
+		parent->subdirectories = ns;
+		parent->dir_capacity = new_cap;
 	}
-	node->subdirectories[node->dir_count++] = subdir;
-	pthread_mutex_unlock(&g_tree_mutex);
+	parent->subdirectories[parent->dir_count++] = child;
+	parent->total_dirs++;
+	node_lock_release(parent);
 	return true;
 }
 
+/*
+ * traverse_recursive_hybrid
+ *
+ * Key changes vs. the original:
+ *  - No global mutex anywhere in the traversal hot path.
+ *  - The depth < 2 gate is removed: we always push subdirectories onto the
+ *    DirQueue so worker threads can steal them immediately.  This gives better
+ *    load balancing on wide trees (e.g. the kernel's drivers/ subtree).
+ *  - The g_follow_links branch is hoisted out of the readdir loop via a
+ *    function pointer selected once per call, removing a branch that the
+ *    predictor sees as almost-always-the-same but still pays mis-prediction
+ *    cost on the first entry of each directory.
+ */
 static void traverse_recursive_hybrid(TreeNode* node, int depth, DirQueue* dq)
 {
+	printf("Start hybrid walker\n");
+	(void) depth; /* depth tracking no longer needed without the gate */
+
 	DIR* dir = opendir(node->name);
 	if (!dir) {
 		return;
 	}
 
+	/* Select stat variant once, outside the loop. */
+	int (*do_stat)(const char*, struct stat*) = g_follow_links ? stat : LSTAT;
+
 	size_t path_len = strlen(node->name);
 	struct dirent* entry;
+
 	while ((entry = readdir(dir)) != NULL) {
+		/* Skip dot entries */
 		if (entry->d_name[0] == '.') {
-			if (strcmp(entry->d_name, ".") == 0 ||
-			 strcmp(entry->d_name, "..") == 0) {
+			if (entry->d_name[1] == '\0' ||
+			 (entry->d_name[1] == '.' && entry->d_name[2] == '\0')) {
 				continue;
 			}
 			if (!g_show_hidden) {
@@ -125,31 +188,27 @@ static void traverse_recursive_hybrid(TreeNode* node, int depth, DirQueue* dq)
 		memcpy(sub_path + path_len + 1, entry->d_name, nlen + 1);
 
 		struct stat st;
-		int stat_res;
-		if (g_follow_links) {
-			stat_res = stat(sub_path, &st);
-		} else {
-			stat_res = LSTAT(sub_path, &st);
-		}
-
-		if (stat_res != 0) {
+		if (do_stat(sub_path, &st) != 0) {
 			continue;
 		}
 
 		if (S_ISDIR(st.st_mode)) {
-			TreeNode* subdir = create_node(sub_path);
-			if (!add_subdir(node, subdir)) {
-				free(subdir->name);
-				free(subdir);
+			TreeNode* child = create_node(sub_path);
+			if (!child) {
 				continue;
 			}
-			pthread_mutex_lock(&g_tree_mutex);
-			node->total_dirs++;
-			pthread_mutex_unlock(&g_tree_mutex);
-			if (depth < 2 && dq) {
-				dq_push(dq, subdir, depth + 1);
+			if (!add_subdir(node, child)) {
+				free(child->name);
+				free(child);
+				continue;
+			}
+			/* Always push to the queue; let workers steal.
+			 * Falls back to inline recursion only when dq is NULL
+			 * (single-threaded path via traverse_directory). */
+			if (dq) {
+				dq_push(dq, child, 0);
 			} else {
-				traverse_recursive_hybrid(subdir, depth + 1, dq);
+				traverse_recursive_hybrid(child, 0, NULL);
 			}
 		} else if (S_ISREG(st.st_mode)) {
 			add_file(node, entry->d_name, (long) st.st_size);
@@ -171,6 +230,7 @@ void walk_dir_task(DirQueue* dq)
 	int depth;
 	while (dq_pop(dq, &data, &depth)) {
 		traverse_recursive_hybrid((TreeNode*) data, depth, dq);
+		dq_node_done(dq);
 	}
 }
 
@@ -185,6 +245,9 @@ process_path(const char* path, bool recurse, WorkQueue* wq, DirQueue* dq)
 	}
 	if (S_ISDIR(st.st_mode)) {
 		TreeNode* root = create_node(path);
+		if (!root) {
+			return NULL;
+		}
 		if (dq) {
 			dq_push(dq, root, 0);
 		}

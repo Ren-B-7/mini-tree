@@ -62,6 +62,7 @@ void wq_destroy(WorkQueue* q);
 int dq_init(DirQueue* q, size_t initial_cap);
 void dq_push(DirQueue* q, void* data, int depth);
 bool dq_pop(DirQueue* q, void** data, int* depth);
+void dq_node_done(DirQueue* q);
 void dq_finish(DirQueue* q);
 void dq_destroy(DirQueue* q);
 

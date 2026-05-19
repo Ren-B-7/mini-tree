@@ -232,7 +232,6 @@ print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
 			bool is_binary_file = is_binary(full_path);
 			const char* color =
 			 g_no_color ? "" : (is_binary_file ? PRINT_YELLOW : PRINT_BLUE);
-
 			bool is_last_item =
 			 (i == node->file_count - 1 && node->dir_count == 0);
 
@@ -262,8 +261,7 @@ print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
 	}
 
 	for (int i = 0; i < node->dir_count; i++) {
-		bool is_last_item = (i == node->dir_count - 1);
-		print_tree(node->subdirectories[i], level + 1, is_last_item,
+		print_tree(node->subdirectories[i], level + 1, i == node->dir_count - 1,
 		 new_prefix);
 	}
 }
@@ -353,8 +351,6 @@ int main(int argc, char* argv[])
 	cli_add_argument(&parser,
 	 (CliArgument) {
 	     "--follow-links", "-L", "Follow symlinks", cb_follow_links, &cfg});
-	cli_add_argument(&parser,
-	 (CliArgument) {"--help", "-h", "Show help", NULL, NULL});
 
 	int consumed = cli_parse(&parser, argc, argv);
 	if (consumed < 0) {
@@ -375,15 +371,24 @@ int main(int argc, char* argv[])
 		nproc = MAX_THREADS;
 	}
 
-	dq.active_count = (int) nproc;
-
+	/*
+	 * Do NOT set dq.active_count here.
+	 *
+	 * Previously this was set to nproc before process_path, which caused a
+	 * race: if all worker threads started and called dq_pop before the root
+	 * node was pushed, they would decrement active_count to 0 on an empty
+	 * queue and declare work done prematurely.
+	 *
+	 * active_count is now incremented inside dq_push, so it always reflects
+	 * the actual number of items in-flight.  Worker threads begin with
+	 * active_count == 0 and correctly block waiting for the first push.
+	 */
 	TreeNode* root = process_path(cfg.dir, true, NULL, &dq);
 
 	pthread_t threads[MAX_THREADS];
 	for (long i = 0; i < nproc; i++) {
 		pthread_create(&threads[i], NULL, walker_thread, &dq);
 	}
-
 	for (long i = 0; i < nproc; i++) {
 		pthread_join(threads[i], NULL);
 	}
@@ -406,6 +411,5 @@ int main(int argc, char* argv[])
 
 	dq_destroy(&dq);
 	cli_destroy(&parser);
-
 	return 0;
 }

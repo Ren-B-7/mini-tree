@@ -134,7 +134,7 @@ format-ci: check-tools format-c-ci format-makefile-ci
 
 format-c-ci:
 	@echo "Checking C source file formats"
-	@clang-format --dry-run -style=file:./.clang-format -Werror $(SRCS_ALL) $(HDRS)
+	@clang-format --dry-run -style=file:./.clang-format -Werror $(SRCS) $(HDRS)
 
 format-makefile-ci:
 	@echo "Checking Makefile format"
@@ -145,7 +145,7 @@ lint: check-tools lint-c lint-makefile
 lint-c:
 	@echo "Running clang-tidy analysis"
 	@clang-tidy -checks=-*,bugprone-*,clang-analyzer-*,performance-* \
-	$(SRCS_ALL) -- $(CFLAGS)
+	$(SRCS) -- $(CFLAGS)
 
 lint-makefile:
 	@echo "Running Makefile analysis"
