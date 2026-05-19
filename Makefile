@@ -8,6 +8,10 @@ EXECUTABLE = $(BIN_DIR)/$(TARGET_NAME)
 ifeq ($(OS),Windows_NT)
     PLATFORM   := windows
     EXE_SUFFIX := .exe
+    # MinGW ships python3; fall back to plain python if not found
+    PYTHON     := $(shell command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
+    # Default install location under the user profile (forward-slashes work in MinGW)
+    INSTALL_DIR ?= $(USERPROFILE)/.local/bin
 else
     UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
     ifeq ($(UNAME_S),Darwin)
@@ -16,7 +20,11 @@ else
         PLATFORM := linux
     endif
     EXE_SUFFIX :=
+    PYTHON     := $(shell command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
+    INSTALL_DIR ?= $(HOME)/.local/bin
 endif
+
+
 
 # --- Hardening Toggle ---
 HARDENED ?= 0
@@ -76,7 +84,7 @@ ALL_CFLAGS = $(CFLAGS) $(SELECTED_HARDENING_C) -O3 -pthread
 LD_FLAGS = $(SELECTED_HARDENING_L)
 
 # Targets
-.PHONY: all clean directories format lint check-tools install check-binaries format-c format-makefile format-ci lint-c lint-makefile
+.PHONY: all clean directories format lint check-tools install uninstall check-binaries format-c format-makefile format-ci lint-c lint-makefile
 
 all: directories check-tools $(EXECUTABLE)
 
@@ -94,13 +102,6 @@ check-binaries:
 		echo "  Expected: $(EXECUTABLE)"; \
 		exit 1; \
 	fi
-
-# Interactive prompt — printf + read work in MinGW bash on all platforms.
-install: check-binaries
-	@printf "Installing...."; \
-	@mkdir -p $(INSTALL_DIR)
-	@install -m 755 $(EXECUTABLE) $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)
-	@echo "Installed $(TARGET_NAME) to $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)"
 
 directories:
 	@mkdir -p $(BIN_DIR) $(BUILD_DIR)
@@ -150,3 +151,14 @@ lint-c:
 lint-makefile:
 	@echo "Running Makefile analysis"
 	@mbake validate --config ./.bake.toml Makefile
+
+install: check-binaries
+	@echo "Installing...."
+	@mkdir -p $(INSTALL_DIR)
+	@mkdir -p $(INSTALL_DIR)
+	@install -m 755 $(EXECUTABLE) $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)
+	@echo "Installed $(TARGET_NAME) to $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)"
+
+uninstall:
+	@rm -f $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)
+	@echo "Uninstalled $(TARGET_NAME) from $(INSTALL_DIR)"
