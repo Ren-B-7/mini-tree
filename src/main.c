@@ -21,305 +21,19 @@ static inline long get_nproc_win32(void)
 #define GET_NPROC() sysconf(_SC_NPROCESSORS_ONLN)
 #endif
 
+#include "include/cli.h"
 #include "include/fs.h"
 #include "include/minicli.h"
 #include "include/output.h"
 #include "include/threading.h"
 #include "include/types.h"
 
-int g_max_depth = -1;
-bool g_no_format = false;
-bool g_show_hidden = false;
-bool g_json = false;
-bool g_xml = false;
-bool g_no_color = false;
-bool g_no_indent = false;
-bool g_prune = false;
-bool g_show_size = false;
-bool g_dirs_only = false;
-bool g_no_count = false;
-bool g_follow_links = false;
-
-typedef struct {
-	const char* dir;
-} TreeConfig;
-
-static int cb_json(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_json = true;
-	return 0;
-}
-
-static int cb_xml(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_xml = true;
-	return 0;
-}
-
-static int cb_no_color(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_no_color = true;
-	return 0;
-}
-
-static int cb_no_indent(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_no_indent = true;
-	return 0;
-}
-
-static int cb_prune(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_prune = true;
-	return 0;
-}
-
-static int cb_show_size(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_show_size = true;
-	return 0;
-}
-
-static int cb_dirs_only(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_dirs_only = true;
-	return 0;
-}
-
-static int cb_no_count(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_no_count = true;
-	return 0;
-}
-
-static int cb_follow_links(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_follow_links = true;
-	return 0;
-}
-
-static int cb_max_depth(int argc, char** argv, void* user_data)
-{
-	(void) user_data;
-	if (argc > 0) {
-		g_max_depth = (int) strtol(argv[0], NULL, 10);
-		return 1;
-	}
-	return 0;
-}
-
-static int cb_show_hidden(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_show_hidden = true;
-	return 0;
-}
-
-static int cb_no_format(int argc, char** argv, void* user_data)
-{
-	(void) argc;
-	(void) argv;
-	(void) user_data;
-	g_no_format = true;
-	return 0;
-}
-
-static bool is_binary(const char* path)
-{
-	return (access(path, X_OK) == 0);
-}
-
-static void format_size(long size, char* buf, size_t buf_size)
-{
-	const char* units[] = {"B", "KB", "MB", "GB", "TB"};
-	int unit = 0;
-	double d_size = (double) size;
-	while (d_size >= 1024 && unit < 4) {
-		d_size /= 1024;
-		unit++;
-	}
-	if (unit == 0) {
-		snprintf(buf, buf_size, "%ld%s", size, units[unit]);
-	} else {
-		snprintf(buf, buf_size, "%.1f%s", d_size, units[unit]);
-	}
-}
-
-static void
-print_tree(TreeNode* node, int level, bool is_last, const char* prefix)
-{
-	if (g_max_depth != -1 && level > g_max_depth) {
-		return;
-	}
-
-	if (g_prune && node->total_files == 0 && node->total_dirs == 0) {
-		return;
-	}
-
-	char size_buf[32] = "";
-	if (g_show_size) {
-		format_size(node->total_size, size_buf, sizeof(size_buf));
-	}
-
-	if (level > 0) {
-		if (g_no_indent) {
-			printf("%s%s%s%s%s\n", g_no_color ? "" : PRINT_GREEN, node->name,
-			 g_no_color ? "" : PRINT_RESET, g_show_size ? " (" : "", size_buf);
-			if (g_show_size) {
-				printf(")");
-			}
-		} else {
-			printf("%s%s-- %s%s%s", prefix, is_last ? "`" : "|",
-			 g_no_color ? "" : PRINT_GREEN, node->name,
-			 g_no_color ? "" : PRINT_RESET);
-			if (g_show_size) {
-				printf(" (%s)", size_buf);
-			}
-			printf("\n");
-		}
-	} else {
-		printf("%s%s%s", g_no_color ? "" : PRINT_GREEN, node->name,
-		 g_no_color ? "" : PRINT_RESET);
-		if (g_show_size) {
-			printf(" (%s)", size_buf);
-		}
-		printf("\n");
-	}
-
-	char new_prefix[4096];
-	if (!g_no_indent) {
-		if (level == 0) {
-			snprintf(new_prefix, sizeof(new_prefix), "%s", prefix);
-		} else {
-			snprintf(new_prefix, sizeof(new_prefix), "%s%s   ", prefix,
-			 is_last ? " " : "|");
-		}
-	} else {
-		new_prefix[0] = '\0';
-	}
-
-	if (!g_dirs_only) {
-		for (int i = 0; i < node->file_count; i++) {
-			char full_path[PATH_BUF];
-			snprintf(full_path, sizeof(full_path), "%s/%s", node->name,
-			 node->files[i]);
-
-			bool is_binary_file = is_binary(full_path);
-			const char* color =
-			 g_no_color ? "" : (is_binary_file ? PRINT_YELLOW : PRINT_BLUE);
-			bool is_last_item =
-			 (i == node->file_count - 1 && node->dir_count == 0);
-
-			if (g_show_size) {
-				struct stat st;
-				if (stat(full_path, &st) == 0) {
-					format_size((long) st.st_size, size_buf, sizeof(size_buf));
-				}
-			}
-
-			if (g_no_indent) {
-				printf("%s%s%s", color, node->files[i],
-				 g_no_color ? "" : PRINT_RESET);
-				if (g_show_size) {
-					printf(" (%s)", size_buf);
-				}
-				printf("\n");
-			} else {
-				printf("%s%s-- %s%s%s", new_prefix, is_last_item ? "`" : "|",
-				 color, node->files[i], g_no_color ? "" : PRINT_RESET);
-				if (g_show_size) {
-					printf(" (%s)", size_buf);
-				}
-				printf("\n");
-			}
-		}
-	}
-
-	for (int i = 0; i < node->dir_count; i++) {
-		print_tree(node->subdirectories[i], level + 1, i == node->dir_count - 1,
-		 new_prefix);
-	}
-}
-
-static void print_json(TreeNode* node, int level)
-{
-	printf("%*s{\n", level * 2, "");
-	printf("%*s\"name\": \"%s\",\n", (level + 1) * 2, "", node->name);
-	printf("%*s\"size\": %ld,\n", (level + 1) * 2, "", node->total_size);
-	printf("%*s\"files\": [\n", (level + 1) * 2, "");
-	for (int i = 0; i < node->file_count; i++) {
-		printf("%*s\"%s\"%s\n", (level + 2) * 2, "", node->files[i],
-		 i == node->file_count - 1 ? "" : ",");
-	}
-	printf("%*s],\n", (level + 1) * 2, "");
-	printf("%*s\"directories\": [\n", (level + 1) * 2, "");
-	for (int i = 0; i < node->dir_count; i++) {
-		print_json(node->subdirectories[i], level + 2);
-		if (i < node->dir_count - 1) {
-			printf(",\n");
-		} else {
-			printf("\n");
-		}
-	}
-	printf("%*s]\n", (level + 1) * 2, "");
-	printf("%*s}", level * 2, "");
-}
-
-static void print_xml(TreeNode* node, int level)
-{
-	printf("%*s<directory name=\"%s\" size=\"%ld\">\n", level * 2, "",
-	 node->name, node->total_size);
-	for (int i = 0; i < node->file_count; i++) {
-		printf("%*s<file name=\"%s\"/>\n", (level + 1) * 2, "", node->files[i]);
-	}
-	for (int i = 0; i < node->dir_count; i++) {
-		print_xml(node->subdirectories[i], level + 1);
-	}
-	printf("%*s</directory>\n", level * 2, "");
-}
-
-static void* walker_thread(void* arg)
-{
-	DirQueue* dq = (DirQueue*) arg;
-	walk_dir_task(dq);
-	return NULL;
-}
-
 int main(int argc, char* argv[])
 {
 	TreeConfig cfg = {.dir = "."};
 	CliParser parser;
 	cli_init(&parser,
-	 (CliInitParams) {"tree", "A multithreaded directory tree tool"});
+	 (CliInitParams) {"tree", "A small cli directory tree tool"});
 
 	cli_add_argument(&parser,
 	 (CliArgument) {
@@ -355,6 +69,14 @@ int main(int argc, char* argv[])
 	cli_add_argument(&parser,
 	 (CliArgument) {
 	     "--follow-links", "-L", "Follow symlinks", cb_follow_links, &cfg});
+	cli_add_argument(&parser,
+	 (CliArgument) {"--single-thread", "-S",
+	     "Run in single threaded mode (Overrides --max-threads)",
+	     cb_single_thread, &cfg});
+	cli_add_argument(&parser,
+	 (CliArgument) {"--max_threads", NULL,
+	     "Run with max amount of threads (Clamped to 0 < THREADS < nproc)",
+	     cb_max_threads, &cfg});
 
 	int consumed = cli_parse(&parser, argc, argv);
 	if (consumed < 0) {
@@ -367,7 +89,9 @@ int main(int argc, char* argv[])
 	DirQueue dq;
 	dq_init(&dq, 1024);
 
-	long nproc = GET_NPROC();
+	TreeNode* root = process_path(cfg.dir, true, NULL, &dq);
+
+	long nproc = (g_max_thread < 1) ? GET_NPROC() : g_max_thread;
 	if (nproc < 1) {
 		nproc = 1;
 	}
@@ -375,26 +99,19 @@ int main(int argc, char* argv[])
 		nproc = MAX_THREADS;
 	}
 
-	/*
-	 * Do NOT set dq.active_count here.
-	 *
-	 * Previously this was set to nproc before process_path, which caused a
-	 * race: if all worker threads started and called dq_pop before the root
-	 * node was pushed, they would decrement active_count to 0 on an empty
-	 * queue and declare work done prematurely.
-	 *
-	 * active_count is now incremented inside dq_push, so it always reflects
-	 * the actual number of items in-flight.  Worker threads begin with
-	 * active_count == 0 and correctly block waiting for the first push.
-	 */
-	TreeNode* root = process_path(cfg.dir, true, NULL, &dq);
-
-	pthread_t threads[MAX_THREADS];
-	for (long i = 0; i < nproc; i++) {
-		pthread_create(&threads[i], NULL, walker_thread, &dq);
-	}
-	for (long i = 0; i < nproc; i++) {
-		pthread_join(threads[i], NULL);
+	if (g_single_thread) {
+		/* Single-threaded mode: process all tasks in the current thread */
+		while (dq.active_count > 0 || !dq.finished) {
+			walker_thread(&dq);
+		}
+	} else {
+		pthread_t threads[MAX_THREADS];
+		for (long i = 0; i < nproc; i++) {
+			pthread_create(&threads[i], NULL, walker_thread, &dq);
+		}
+		for (long i = 0; i < nproc; i++) {
+			pthread_join(threads[i], NULL);
+		}
 	}
 
 	if (root) {

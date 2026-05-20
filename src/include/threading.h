@@ -67,5 +67,6 @@ void dq_finish(DirQueue* q);
 void dq_destroy(DirQueue* q);
 
 void walk_dir_task(DirQueue* dq);
+void* walker_thread(void* arg);
 
 #endif

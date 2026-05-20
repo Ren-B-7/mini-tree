@@ -28,12 +28,12 @@ endif
 HARDENED ?= 0
 
 # Source and Header files
-SRCS = src/main.c src/fs.c src/threading.c src/include/set.c
-HDRS = src/include/minicli.h src/include/output.h src/include/types.h \
-       src/include/set.h src/include/threading.h src/include/fs.h
+SRCS = src/main.c src/fs.c src/threading.c src/include/set.c src/cli.c src/output.c
+HDRS = src/include/minicli.h src/include/types.h \
+       src/include/set.h src/include/threading.h src/include/fs.h src/include/cli.h src/include/output.h
 
 # Object files
-OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/threading.o $(BUILD_DIR)/set.o
+OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/fs.o $(BUILD_DIR)/threading.o $(BUILD_DIR)/set.o $(BUILD_DIR)/cli.o $(BUILD_DIR)/output.o
 
 # --- Compiler Detection ---
 CC = gcc
@@ -82,9 +82,11 @@ ALL_CFLAGS = $(CFLAGS) $(SELECTED_HARDENING_C) -O3 -pthread
 LD_FLAGS = $(SELECTED_HARDENING_L)
 
 # Targets
-.PHONY: all clean directories format lint check-tools install uninstall check-binaries format-c format-makefile format-ci lint-c lint-makefile
+.PHONY: all clean directories default format lint check-tools install uninstall check-binaries format-c format-makefile format-ci lint-c lint-makefile
 
-all: directories check-tools $(EXECUTABLE)
+default: directories $(EXECUTABLE)
+
+all: directories check $(EXECUTABLE)
 
 check: check-tools format lint
 
@@ -93,6 +95,8 @@ check-tools:
 	    { echo "ERROR: clang-format not found."; exit 1; }
 	@command -v clang-tidy > /dev/null 2>&1 || \
 	    { echo "ERROR: clang-tidy not found."; exit 1; }
+	@command -v mbake > /dev/null 2>&1 || \
+	    { echo "ERROR: mbake not found."; exit 1; }
 
 check-binaries:
 	@if [ ! -f "$(EXECUTABLE)" ]; then \
@@ -151,8 +155,6 @@ lint-makefile:
 	@mbake validate --config ./.bake.toml Makefile
 
 install: check-binaries
-	@echo "Installing...."
-	@mkdir -p $(INSTALL_DIR)
 	@mkdir -p $(INSTALL_DIR)
 	@install -m 755 $(EXECUTABLE) $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)
 	@echo "Installed $(TARGET_NAME) to $(INSTALL_DIR)/$(TARGET_NAME)$(EXE_SUFFIX)"

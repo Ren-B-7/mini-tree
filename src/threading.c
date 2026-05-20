@@ -101,7 +101,7 @@ void wq_finish(WorkQueue* q)
 	pthread_mutex_unlock(&q->lock);
 }
 
-COLD_ATTR void wq_destroy(WorkQueue* q)
+COLD_ATTR inline void wq_destroy(WorkQueue* q)
 {
 	free((void*) q->paths);
 	pthread_cond_destroy(&q->not_full);
@@ -251,11 +251,18 @@ void dq_node_done(DirQueue* q)
 	pthread_mutex_unlock(&q->lock);
 }
 
-COLD_ATTR void dq_destroy(DirQueue* q)
+COLD_ATTR inline void dq_destroy(DirQueue* q)
 {
 	free((void*) q->data);
 	free((void*) q->depths);
 	pthread_cond_destroy(&q->not_full);
 	pthread_cond_destroy(&q->not_empty);
 	pthread_mutex_destroy(&q->lock);
+}
+
+void* walker_thread(void* arg)
+{
+	DirQueue* dq = (DirQueue*) arg;
+	walk_dir_task(dq);
+	return NULL;
 }
