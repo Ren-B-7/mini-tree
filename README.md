@@ -31,7 +31,7 @@ Mini-Tree uses `gcc` and `pthread` for its multithreaded architecture.
 3.  **Options:**
     Use `--help` (or standard CLI arguments) to see all supported features like JSON/XML output, file pruning, and link following.
 
-```bash
+```
 ❯ tree --help
 tree — A small cli directory tree tool
 
