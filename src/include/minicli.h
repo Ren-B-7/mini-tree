@@ -188,7 +188,7 @@ static inline int cli_parse(CliParser* parser, int argc, char** argv)
 			}
 		}
 		if (!found) {
-			/* Unknown option, ignore or handle */
+			/* Unknown option, ignore for now or handle as needed */
 		}
 	}
 	return (first_non_option == -1) ? argc : first_non_option;
